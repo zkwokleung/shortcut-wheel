@@ -6,7 +6,7 @@ struct ShortcutWheelApp: App {
     @StateObject private var permissions = PermissionsManager.shared
 
     var body: some Scene {
-        MenuBarExtra("ShortcutWheel", systemImage: "circle.grid.cross.fill") {
+        MenuBarExtra("ShortcutWheel", image: "MenuBarIcon") {
             MenuContent(permissions: permissions)
         }
 
