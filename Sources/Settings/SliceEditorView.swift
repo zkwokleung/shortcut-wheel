@@ -12,10 +12,8 @@ struct SliceEditorView: View {
             Form {
                 Section("Appearance") {
                     TextField("Label", text: $slice.label)
-                    HStack {
-                        TextField("SF Symbol", text: symbolBinding)
-                        Image(systemName: slice.symbol ?? "circle")
-                            .foregroundStyle(Color(hex: slice.tintHex))
+                    LabeledContent("Symbol") {
+                        SymbolPickerButton(symbol: $slice.symbol, tint: Color(hex: slice.tintHex))
                     }
                     ColorPicker("Tint", selection: tintBinding, supportsOpacity: false)
                 }
@@ -83,10 +81,6 @@ struct SliceEditorView: View {
     }
 
     // MARK: Appearance bindings
-
-    private var symbolBinding: Binding<String> {
-        Binding(get: { slice.symbol ?? "" }, set: { slice.symbol = $0.isEmpty ? nil : $0 })
-    }
 
     private var tintBinding: Binding<Color> {
         Binding(get: { Color(hex: slice.tintHex) }, set: { slice.tintHex = $0.hexString })
