@@ -60,8 +60,7 @@ struct WheelEditorView: View {
             presenting: pendingSlotCount
         ) { newCount in
             Button("Remove", role: .destructive) {
-                let drop = wheel.slices.count - newCount
-                if drop > 0 { wheel.slices.removeLast(drop) }
+                wheel.removeSlots(wheel.slices.count - newCount)
                 pendingSlotCount = nil
             }
             Button("Cancel", role: .cancel) { pendingSlotCount = nil }
@@ -79,10 +78,10 @@ struct WheelEditorView: View {
         guard newCount != current else { return }
         if newCount > current {
             wheel.slices.append(contentsOf: Array(repeating: nil, count: newCount - current))
-        } else if wheel.slices[newCount...].contains(where: { $0 != nil }) {
+        } else if current - newCount > wheel.emptySlotCount {
             pendingSlotCount = newCount // confirm before dropping filled slots
         } else {
-            wheel.slices.removeLast(current - newCount)
+            wheel.removeSlots(current - newCount)
         }
     }
 

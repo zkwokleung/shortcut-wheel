@@ -57,6 +57,25 @@ struct Wheel: Identifiable, Codable, Equatable {
     /// position (0 = top, clockwise), and `nil` is an empty slot. A legacy config
     /// (plain array of objects) decodes as all-filled slots.
     var slices: [WheelSlice?]
+
+    var emptySlotCount: Int { slices.lazy.filter { $0 == nil }.count }
+
+    /// Shrinks the wheel by `count` slots, dropping empty slots before filled ones so
+    /// assigned shortcuts survive when possible. Empties are removed from the end
+    /// first; once they run out, filled slots are removed from the end. Surviving
+    /// filled slots shift to lower positions as gaps close.
+    mutating func removeSlots(_ count: Int) {
+        var remaining = min(max(count, 0), slices.count)
+        var index = slices.count - 1
+        while remaining > 0 && index >= 0 {
+            if slices[index] == nil {
+                slices.remove(at: index)
+                remaining -= 1
+            }
+            index -= 1
+        }
+        if remaining > 0 { slices.removeLast(remaining) }
+    }
 }
 
 /// The persisted document: schema version, every wheel, the active trigger, and
