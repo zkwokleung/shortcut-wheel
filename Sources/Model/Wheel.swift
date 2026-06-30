@@ -10,6 +10,7 @@ enum Action: Codable, Equatable {
     case openApp(path: String)
     case runScript(String)
     case subWheel(wheelID: UUID)
+    case openSettings
     case none
 
     var isSubWheel: Bool {

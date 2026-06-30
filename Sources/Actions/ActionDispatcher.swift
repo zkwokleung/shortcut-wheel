@@ -38,6 +38,9 @@ struct ActionDispatcher {
             runScript(command)
         case .subWheel(let wheelID):
             return .openSubWheel(wheelID)
+        case .openSettings:
+            NSApp.activate(ignoringOtherApps: true)
+            NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
         case .none:
             break
         }

@@ -75,6 +75,8 @@ struct SliceEditorView: View {
                     ForEach(otherWheels) { Text($0.name).tag($0.id) }
                 }
             }
+        case .openSettings:
+            Text("Opens Shortcut Wheel's settings window.").foregroundStyle(.secondary)
         case .none:
             Text("This slice does nothing when selected.").foregroundStyle(.secondary)
         }
@@ -113,6 +115,8 @@ struct SliceEditorView: View {
         case .subWheel:
             guard let target = otherWheels.first?.id else { return }
             slice.action = .subWheel(wheelID: target)
+        case .openSettings:
+            slice.action = .openSettings
         }
     }
 
@@ -176,7 +180,7 @@ struct SliceEditorView: View {
 }
 
 private enum ActionKind: String, CaseIterable, Identifiable {
-    case none, sendKeys, openURL, openApp, runScript, subWheel
+    case none, sendKeys, openURL, openApp, runScript, subWheel, openSettings
 
     var id: String { rawValue }
 
@@ -188,6 +192,7 @@ private enum ActionKind: String, CaseIterable, Identifiable {
         case .openApp: return "Open App"
         case .runScript: return "Run Script"
         case .subWheel: return "Sub-wheel"
+        case .openSettings: return "Open Settings"
         }
     }
 
@@ -199,6 +204,7 @@ private enum ActionKind: String, CaseIterable, Identifiable {
         case .openApp: self = .openApp
         case .runScript: self = .runScript
         case .subWheel: self = .subWheel
+        case .openSettings: self = .openSettings
         }
     }
 }
