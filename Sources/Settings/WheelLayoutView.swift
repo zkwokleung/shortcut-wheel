@@ -2,7 +2,9 @@ import SwiftUI
 
 /// Interactive preview of a wheel's slots, mirroring the live overlay layout
 /// (`WheelGeometry` + `AnnularSector`). Tapping a wedge reports its slot index;
-/// empty slots show a "+" and filled slots show their tint/symbol/label.
+/// dragging a filled wedge onto another position swaps the two slices (or moves
+/// it onto an empty slot). Empty slots show a "+" and filled slots show their
+/// tint/symbol/label.
 struct WheelLayoutView: View {
     @Binding var slices: [WheelSlice?]
     let onSelectSlot: (Int) -> Void
@@ -12,6 +14,10 @@ struct WheelLayoutView: View {
     private let innerRadius: CGFloat = 46
     private var labelRadius: CGFloat { (outerRadius + innerRadius) / 2 }
     private var center: CGPoint { CGPoint(x: diameter / 2, y: diameter / 2) }
+
+    @State private var dragSourceIndex: Int?
+    @State private var dragLocation: CGPoint?
+    @State private var dropTargetIndex: Int?
 
     var body: some View {
         ZStack {
@@ -26,6 +32,12 @@ struct WheelLayoutView: View {
                 .frame(width: innerRadius * 2 - 6, height: innerRadius * 2 - 6)
                 .overlay(Circle().stroke(.secondary.opacity(0.25)))
                 .allowsHitTesting(false)
+
+            if let source = dragSourceIndex, let location = dragLocation, let slot = slices[source] {
+                dragChip(for: slot)
+                    .position(location)
+                    .allowsHitTesting(false)
+            }
         }
         .frame(width: diameter, height: diameter)
     }
@@ -37,11 +49,46 @@ struct WheelLayoutView: View {
         let hitShape = AnnularSector(angles: angles, innerRadius: innerRadius, outerRadius: outerRadius)
         let slot = slices[index]
         let fill = slot.map { Color(hex: $0.tintHex).opacity(0.85) } ?? Color.gray.opacity(0.15)
+        let isSource = dragSourceIndex == index
+        let isDropTarget = dropTargetIndex == index && dragSourceIndex != nil && dragSourceIndex != index
+        let stroke: AnyShapeStyle = isDropTarget ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.secondary.opacity(0.35))
         return shape
             .fill(fill)
-            .overlay(shape.stroke(.secondary.opacity(0.35), lineWidth: 1))
+            .overlay(shape.stroke(stroke, lineWidth: isDropTarget ? 3 : 1))
+            .opacity(isSource ? 0.4 : 1)
             .contentShape(hitShape)
             .onTapGesture { onSelectSlot(index) }
+            .gesture(dragGesture(for: index))
+    }
+
+    /// Drag past `minimumDistance` reorders; a tap below it falls through to
+    /// `onSelectSlot`. Only filled slots can be picked up.
+    private func dragGesture(for index: Int) -> some Gesture {
+        DragGesture(minimumDistance: 10, coordinateSpace: .local)
+            .onChanged { value in
+                guard slices[index] != nil else { return }
+                if dragSourceIndex == nil { dragSourceIndex = index }
+                dragLocation = value.location
+                dropTargetIndex = targetIndex(at: value.location)
+            }
+            .onEnded { value in
+                defer {
+                    dragSourceIndex = nil
+                    dragLocation = nil
+                    dropTargetIndex = nil
+                }
+                guard let source = dragSourceIndex else { return }
+                if let target = targetIndex(at: value.location), target != source {
+                    slices.swapAt(source, target)
+                }
+            }
+    }
+
+    /// Slot under a view-space drag point. `WheelGeometry` works in screen space
+    /// (y-up), so flip y; `center` is symmetric and needs no flip.
+    private func targetIndex(at point: CGPoint) -> Int? {
+        let flipped = CGPoint(x: point.x, y: diameter - point.y)
+        return WheelGeometry.sliceIndex(forCursor: flipped, center: center, sliceCount: slices.count)
     }
 
     @ViewBuilder
@@ -63,7 +110,20 @@ struct WheelLayoutView: View {
                 Image(systemName: "plus").font(.system(size: 16, weight: .semibold)).foregroundStyle(.secondary)
             }
         }
+        .opacity(dragSourceIndex == index ? 0 : 1) // hidden while lifted; the drag chip stands in
         .position(position)
         .allowsHitTesting(false) // taps belong to the wedge underneath
+    }
+
+    private func dragChip(for slot: WheelSlice) -> some View {
+        VStack(spacing: 2) {
+            Image(systemName: slot.symbol ?? "circle.fill").font(.system(size: 16, weight: .semibold))
+            Text(slot.label.isEmpty ? "Untitled" : slot.label).font(.caption2).lineLimit(1)
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color(hex: slot.tintHex).opacity(0.95)))
+        .shadow(color: .black.opacity(0.25), radius: 6, y: 2)
     }
 }

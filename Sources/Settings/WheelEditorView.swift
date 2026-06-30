@@ -35,7 +35,7 @@ struct WheelEditorView: View {
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 12)
-                Text("Tap a wedge to assign or edit the shortcut at that position.")
+                Text("Tap a wedge to edit it, or drag it to another position to rearrange.")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
