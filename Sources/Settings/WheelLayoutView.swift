@@ -31,17 +31,16 @@ struct WheelLayoutView: View {
     }
 
     private func wedge(at index: Int) -> some View {
-        let shape = AnnularSector(
-            angles: WheelGeometry.sectorAngles(index: index, sliceCount: slices.count),
-            innerRadius: innerRadius,
-            outerRadius: outerRadius
-        )
+        let angles = WheelGeometry.sectorAngles(index: index, sliceCount: slices.count)
+        let shape = AnnularSector(angles: angles, innerRadius: innerRadius, outerRadius: outerRadius, gap: WheelGeometry.wedgeGap)
+        // Ungapped hit area so taps near a wedge border still register on it.
+        let hitShape = AnnularSector(angles: angles, innerRadius: innerRadius, outerRadius: outerRadius)
         let slot = slices[index]
         let fill = slot.map { Color(hex: $0.tintHex).opacity(0.85) } ?? Color.gray.opacity(0.15)
         return shape
             .fill(fill)
             .overlay(shape.stroke(.secondary.opacity(0.35), lineWidth: 1))
-            .contentShape(shape)
+            .contentShape(hitShape)
             .onTapGesture { onSelectSlot(index) }
     }
 

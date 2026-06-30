@@ -51,7 +51,8 @@ struct WheelView: View {
             let shape = AnnularSector(
                 angles: WheelGeometry.sectorAngles(index: slice.id, sliceCount: model.slices.count),
                 innerRadius: innerRadius,
-                outerRadius: outerRadius
+                outerRadius: outerRadius,
+                gap: WheelGeometry.wedgeGap
             )
             shape
                 .fill((slice.isEmpty ? Color.white : slice.tint).opacity(fillOpacity))

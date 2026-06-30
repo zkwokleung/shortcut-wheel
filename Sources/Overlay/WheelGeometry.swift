@@ -17,6 +17,10 @@ enum WheelGeometry {
     /// Cursor closer than this to the center selects nothing (a release here cancels).
     static let deadZoneRadius: CGFloat = 28
 
+    /// Constant-width space (points) drawn between adjacent wedges. Shared by the
+    /// live overlay and the settings preview so they render identically.
+    static let wedgeGap: CGFloat = 4
+
     /// Slice the cursor points at, or `nil` if within the dead zone / no slices.
     /// `cursor` and `center` are both in screen space (y-up).
     static func sliceIndex(forCursor cursor: CGPoint, center: CGPoint, sliceCount: Int) -> Int? {
@@ -51,14 +55,15 @@ enum WheelGeometry {
         )
     }
 
-    /// Start/end angles for a slice's sector as SwiftUI `Angle`s (0 = east, y-down
-    /// so increasing angle is visually clockwise). Used to draw annular sectors.
-    static func sectorAngles(index: Int, sliceCount: Int, gap: CGFloat = 0.06) -> (start: Angle, end: Angle) {
+    /// Start/end angles for a slice's full sector as SwiftUI `Angle`s (0 = east,
+    /// y-down so increasing angle is visually clockwise). Wedges tile the whole ring;
+    /// `AnnularSector.gap` trims a constant-width space between them when drawing.
+    static func sectorAngles(index: Int, sliceCount: Int) -> (start: Angle, end: Angle) {
         let sliceAngle = 2 * .pi / CGFloat(sliceCount)
         let center = centerAngle(of: index, sliceCount: sliceCount)
         // Convert clockwise-from-top to SwiftUI's east-origin: subtract 90°.
         let swCenter = center - .pi / 2
-        let half = max(0, sliceAngle / 2 - gap)
+        let half = sliceAngle / 2
         return (Angle(radians: Double(swCenter - half)), Angle(radians: Double(swCenter + half)))
     }
 }

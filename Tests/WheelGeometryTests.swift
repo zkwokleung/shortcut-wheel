@@ -29,7 +29,7 @@ struct WheelGeometryTests {
     }
 
     @Test func sectorAnglesNeverInvertForManySlices() {
-        // gap could push a wedge's half-angle negative; it must clamp, not invert.
+        // Each wedge must span forward (start <= end) for any slice count.
         for count in [2, 6, 12, 60] {
             for i in 0..<count {
                 let (start, end) = WheelGeometry.sectorAngles(index: i, sliceCount: count)
