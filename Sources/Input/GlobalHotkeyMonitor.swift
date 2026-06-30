@@ -135,17 +135,13 @@ final class GlobalHotkeyMonitor {
             return pass
         }
 
-        // While a swallowing mouse-button trigger drives the wheel, also consume drags
-        // so the focused app doesn't receive orphaned drag events. In hold-delay mode
-        // the press passes through, so only swallow once the wheel is actually open.
-        if type == .otherMouseDragged {
-            // Drag-to-open and immediate mode swallow from press (so the summoning
-            // drag doesn't leak to the app, e.g. middle-button autoscroll); hold-delay
-            // swallows only once the wheel is open.
-            let active = binding.activationMode == .holdDelay ? wheelOpen : isTriggerDown
-            let swallowDrag = active && binding.kind == .mouseButton && binding.swallowEvent
-            return swallowDrag ? nil : pass
-        }
+        // Never swallow drag movement. A CGEventTap that discards an otherMouseDragged
+        // event also discards the cursor movement it carries, freezing the pointer
+        // while the trigger button is held — which breaks radial selection (the cursor
+        // can't move to a slice) and drag-to-open (it needs the cursor to actually
+        // travel). The button down/up are still swallowed below, so the app gets at
+        // most orphaned drags with no matching button-down, which apps ignore.
+        if type == .otherMouseDragged { return pass }
 
         guard let edge = triggerEdge(type: type, event: event) else { return pass }
 
