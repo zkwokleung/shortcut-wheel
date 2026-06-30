@@ -19,7 +19,7 @@ struct WheelEditorView: View {
                     LabeledContent("Positions", value: "\(wheel.slices.count)")
                 }
                 if isRoot {
-                    Label("Opens on trigger", systemImage: "smallcircle.filled.circle")
+                    Label("Default wheel — opens on trigger", systemImage: "smallcircle.filled.circle")
                         .foregroundStyle(.secondary)
                 } else {
                     Button("Make This the Default Wheel", action: makeRoot)
