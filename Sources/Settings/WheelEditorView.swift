@@ -9,16 +9,15 @@ struct WheelEditorView: View {
     @State private var editingSlot: EditingSlot?
     @State private var pendingSlotCount: Int?
 
-    private let slotOptions = [4, 6, 8, 12]
+    private let slotRange = 2...12
 
     var body: some View {
         Form {
             Section("Wheel") {
                 TextField("Name", text: $wheel.name)
-                Picker("Positions", selection: slotCountBinding) {
-                    ForEach(slotOptions, id: \.self) { Text("\($0)").tag($0) }
+                Stepper(value: slotCountBinding, in: slotRange) {
+                    LabeledContent("Positions", value: "\(wheel.slices.count)")
                 }
-                .pickerStyle(.segmented)
                 if isRoot {
                     Label("Opens on trigger", systemImage: "smallcircle.filled.circle")
                         .foregroundStyle(.secondary)
