@@ -1,0 +1,64 @@
+import CoreGraphics
+import Foundation
+import SwiftUI
+
+/// Pure geometry for the radial menu. Selection is by cursor *direction* from the
+/// wheel center, not by hit-testing, so the cursor may travel outside the panel.
+///
+/// Two coordinate spaces are in play:
+/// - **Screen space** (`NSEvent.mouseLocation`): origin bottom-left, y points up.
+///   Selection math lives here.
+/// - **View space** (SwiftUI): origin top-left, y points down. `labelPosition`
+///   converts into it for drawing.
+///
+/// Angles are measured **clockwise from the top** (12 o'clock = 0), so slice 0 is
+/// centered at the top and slices proceed clockwise.
+enum WheelGeometry {
+    /// Cursor closer than this to the center selects nothing (a release here cancels).
+    static let deadZoneRadius: CGFloat = 28
+
+    /// Slice the cursor points at, or `nil` if within the dead zone / no slices.
+    /// `cursor` and `center` are both in screen space (y-up).
+    static func sliceIndex(forCursor cursor: CGPoint, center: CGPoint, sliceCount: Int) -> Int? {
+        guard sliceCount > 0 else { return nil }
+
+        let dx = cursor.x - center.x
+        let dy = cursor.y - center.y
+        guard hypot(dx, dy) >= deadZoneRadius else { return nil }
+
+        // atan2(dx, dy): top → 0, right → +π/2, bottom → ±π, left → -π/2.
+        var angle = atan2(dx, dy)
+        if angle < 0 { angle += 2 * .pi }
+
+        let sliceAngle = 2 * .pi / CGFloat(sliceCount)
+        let index = Int((angle / sliceAngle).rounded()) % sliceCount
+        return index
+    }
+
+    /// Center angle of a slice, clockwise from top, in radians.
+    static func centerAngle(of index: Int, sliceCount: Int) -> CGFloat {
+        guard sliceCount > 0 else { return 0 }
+        return CGFloat(index) * (2 * .pi / CGFloat(sliceCount))
+    }
+
+    /// Position for a slice's label at `radius`, in view space (y-down) around
+    /// `center`. Converts the clockwise-from-top angle into screen drawing coords.
+    static func labelPosition(index: Int, sliceCount: Int, center: CGPoint, radius: CGFloat) -> CGPoint {
+        let angle = centerAngle(of: index, sliceCount: sliceCount)
+        return CGPoint(
+            x: center.x + radius * sin(angle),
+            y: center.y - radius * cos(angle)
+        )
+    }
+
+    /// Start/end angles for a slice's sector as SwiftUI `Angle`s (0 = east, y-down
+    /// so increasing angle is visually clockwise). Used to draw annular sectors.
+    static func sectorAngles(index: Int, sliceCount: Int, gap: CGFloat = 0.06) -> (start: Angle, end: Angle) {
+        let sliceAngle = 2 * .pi / CGFloat(sliceCount)
+        let center = centerAngle(of: index, sliceCount: sliceCount)
+        // Convert clockwise-from-top to SwiftUI's east-origin: subtract 90°.
+        let swCenter = center - .pi / 2
+        let half = max(0, sliceAngle / 2 - gap)
+        return (Angle(radians: Double(swCenter - half)), Angle(radians: Double(swCenter + half)))
+    }
+}
