@@ -3,6 +3,7 @@ import SwiftUI
 enum SettingsSection: Hashable {
     case permissions
     case trigger
+    case selectionMode
     case wheel(UUID)
 }
 
@@ -26,6 +27,7 @@ struct SettingsView: View {
             Section("App") {
                 Label("Permissions", systemImage: "lock.shield").tag(SettingsSection.permissions)
                 Label("Trigger", systemImage: "hand.tap").tag(SettingsSection.trigger)
+                Label("Selection", systemImage: "scope").tag(SettingsSection.selectionMode)
             }
             Section("Wheels") {
                 ForEach(config.config.wheels) { wheel in
@@ -53,12 +55,15 @@ struct SettingsView: View {
             PermissionsSection(permissions: permissions)
         case .trigger:
             TriggerSection(trigger: $config.config.trigger)
+        case .selectionMode:
+            SelectionModeSection(mode: $config.config.selectionMode)
         case .wheel(let id):
             if let binding = wheelBinding(id) {
                 WheelEditorView(
                     wheel: binding,
                     isRoot: id == config.config.rootWheelID,
                     otherWheels: config.config.wheels.filter { $0.id != id },
+                    selectionMode: config.config.selectionMode,
                     makeRoot: { config.config.rootWheelID = id }
                 )
             } else {
@@ -138,6 +143,28 @@ private struct PermissionsSection: View {
             Spacer()
             Button("Open Settings…", action: open)
         }
+    }
+}
+
+private struct SelectionModeSection: View {
+    @Binding var mode: SelectionMode
+
+    var body: some View {
+        Form {
+            Section("Selection") {
+                Picker("How the wheel selects", selection: $mode) {
+                    ForEach(SelectionMode.allCases) { mode in
+                        Text(mode.label).tag(mode)
+                    }
+                }
+            }
+            Section {
+                Text(mode.detail)
+                    .font(.callout).foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+        .navigationTitle("Selection")
     }
 }
 

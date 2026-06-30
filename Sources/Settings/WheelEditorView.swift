@@ -4,6 +4,7 @@ struct WheelEditorView: View {
     @Binding var wheel: Wheel
     let isRoot: Bool
     let otherWheels: [Wheel]
+    let selectionMode: SelectionMode
     let makeRoot: () -> Void
 
     @State private var editingSlot: EditingSlot?
@@ -27,7 +28,7 @@ struct WheelEditorView: View {
             }
 
             Section("Layout") {
-                WheelLayoutView(slices: $wheel.slices) { slot in
+                WheelLayoutView(slices: $wheel.slices, selectionMode: selectionMode) { slot in
                     if wheel.slices[slot] == nil {
                         wheel.slices[slot] = WheelSlice(label: "New Slice", action: .none)
                     }

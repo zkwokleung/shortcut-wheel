@@ -40,6 +40,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         hotkeyMonitor.onPress = { [weak self] anchor in
             guard let self, let root = self.config.rootWheel else { return }
+            self.overlay.selectionMode = self.config.config.selectionMode
             self.overlay.show(rootWheel: root, at: anchor)
         }
         hotkeyMonitor.onRelease = { [weak self] in

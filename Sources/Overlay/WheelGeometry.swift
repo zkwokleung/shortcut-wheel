@@ -22,13 +22,18 @@ enum WheelGeometry {
     static let wedgeGap: CGFloat = 4
 
     /// Slice the cursor points at, or `nil` if within the dead zone / no slices.
-    /// `cursor` and `center` are both in screen space (y-up).
-    static func sliceIndex(forCursor cursor: CGPoint, center: CGPoint, sliceCount: Int) -> Int? {
+    /// `cursor` and `center` are both in screen space (y-up). When `maxRadius` is
+    /// given (precise-position mode), a cursor farther than it from the center also
+    /// selects nothing; `nil` (direction mode) leaves selection unbounded outward.
+    static func sliceIndex(forCursor cursor: CGPoint, center: CGPoint, sliceCount: Int,
+                           maxRadius: CGFloat? = nil) -> Int? {
         guard sliceCount > 0 else { return nil }
 
         let dx = cursor.x - center.x
         let dy = cursor.y - center.y
-        guard hypot(dx, dy) >= deadZoneRadius else { return nil }
+        let distance = hypot(dx, dy)
+        guard distance >= deadZoneRadius else { return nil }
+        if let maxRadius, distance > maxRadius { return nil }
 
         // atan2(dx, dy): top → 0, right → +π/2, bottom → ±π, left → -π/2.
         var angle = atan2(dx, dy)

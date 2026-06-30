@@ -2,11 +2,12 @@ import SwiftUI
 
 /// Interactive preview of a wheel's slots, mirroring the live overlay layout
 /// (`WheelGeometry` + `AnnularSector`). Tapping a wedge reports its slot index;
-/// dragging a filled wedge onto another position swaps the two slices (or moves
-/// it onto an empty slot). Empty slots show a "+" and filled slots show their
-/// tint/symbol/label.
+/// dragging a filled wedge onto another position swaps the two slices (swapping
+/// with an empty slot moves it there). Empty slots show a "+" and filled slots
+/// show their tint/symbol/label.
 struct WheelLayoutView: View {
     @Binding var slices: [WheelSlice?]
+    var selectionMode: SelectionMode = .direction
     let onSelectSlot: (Int) -> Void
 
     private let diameter: CGFloat = 300
@@ -62,7 +63,9 @@ struct WheelLayoutView: View {
     }
 
     /// Drag past `minimumDistance` reorders; a tap below it falls through to
-    /// `onSelectSlot`. Only filled slots can be picked up.
+    /// `onSelectSlot`. Only filled slots can be picked up. The drop commits the
+    /// highlighted `dropTargetIndex`, so what the user sees is what they get and a
+    /// release on no target (dead zone, or off the wheel in precise mode) cancels.
     private func dragGesture(for index: Int) -> some Gesture {
         DragGesture(minimumDistance: 10, coordinateSpace: .local)
             .onChanged { value in
@@ -71,24 +74,24 @@ struct WheelLayoutView: View {
                 dragLocation = value.location
                 dropTargetIndex = targetIndex(at: value.location)
             }
-            .onEnded { value in
+            .onEnded { _ in
                 defer {
                     dragSourceIndex = nil
                     dragLocation = nil
                     dropTargetIndex = nil
                 }
-                guard let source = dragSourceIndex else { return }
-                if let target = targetIndex(at: value.location), target != source {
-                    slices.swapAt(source, target)
-                }
+                guard let source = dragSourceIndex, let target = dropTargetIndex, target != source else { return }
+                slices.swapAt(source, target)
             }
     }
 
     /// Slot under a view-space drag point. `WheelGeometry` works in screen space
-    /// (y-up), so flip y; `center` is symmetric and needs no flip.
+    /// (y-up), so flip y; `center` is symmetric and needs no flip. Precise mode
+    /// bounds the drop to the wheel so a release off it resolves to no target.
     private func targetIndex(at point: CGPoint) -> Int? {
         let flipped = CGPoint(x: point.x, y: diameter - point.y)
-        return WheelGeometry.sliceIndex(forCursor: flipped, center: center, sliceCount: slices.count)
+        let maxRadius: CGFloat? = selectionMode == .precisePosition ? outerRadius : nil
+        return WheelGeometry.sliceIndex(forCursor: flipped, center: center, sliceCount: slices.count, maxRadius: maxRadius)
     }
 
     @ViewBuilder
@@ -99,8 +102,7 @@ struct WheelLayoutView: View {
         Group {
             if let slot = slices[index] {
                 VStack(spacing: 2) {
-                    Image(systemName: slot.symbol ?? "circle.fill").font(.system(size: 16, weight: .semibold))
-                    Text(slot.label.isEmpty ? "Untitled" : slot.label).font(.caption2).lineLimit(1)
+                    sliceLabelContent(slot)
                     if slot.action.isSubWheel {
                         Image(systemName: "chevron.right.2").font(.system(size: 7, weight: .bold)).opacity(0.8)
                     }
@@ -115,10 +117,17 @@ struct WheelLayoutView: View {
         .allowsHitTesting(false) // taps belong to the wedge underneath
     }
 
+    /// The symbol + title shared by a wedge's resting label and its lifted drag chip,
+    /// so the two always render the slice identically.
+    @ViewBuilder
+    private func sliceLabelContent(_ slot: WheelSlice) -> some View {
+        Image(systemName: slot.symbol ?? "circle.fill").font(.system(size: 16, weight: .semibold))
+        Text(slot.label.isEmpty ? "Untitled" : slot.label).font(.caption2).lineLimit(1)
+    }
+
     private func dragChip(for slot: WheelSlice) -> some View {
         VStack(spacing: 2) {
-            Image(systemName: slot.symbol ?? "circle.fill").font(.system(size: 16, weight: .semibold))
-            Text(slot.label.isEmpty ? "Untitled" : slot.label).font(.caption2).lineLimit(1)
+            sliceLabelContent(slot)
         }
         .foregroundStyle(.white)
         .padding(.horizontal, 10)

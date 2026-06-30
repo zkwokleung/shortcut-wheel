@@ -25,6 +25,14 @@ final class OverlayWindowController {
     /// `ConfigStore`) so the overlay needn't depend on the store.
     var wheelProvider: ((UUID) -> Wheel?)?
 
+    /// How the cursor maps to a slice; set by the app before each `show`. In
+    /// `precisePosition` the cursor must stay within `outerRadius` to select.
+    var selectionMode: SelectionMode = .direction
+
+    /// Mirrors `WheelView.outerRadius`; the bound used to gate selection in
+    /// precise-position mode. (Radii are kept per-view in this codebase.)
+    private let outerRadius: CGFloat = 132
+
     /// Slots of the wheel currently shown, parallel to `viewModel.slices` (`nil` =
     /// empty slot), kept so `hide()` can return the model `WheelSlice` picked.
     private var currentSlices: [WheelSlice?] = []
@@ -155,10 +163,12 @@ final class OverlayWindowController {
         // and the post-fire re-anchor avoids two reads disagreeing on a slice
         // boundary (which could leak an extra drill).
         let cursor = NSEvent.mouseLocation
+        let maxRadius: CGFloat? = selectionMode == .precisePosition ? outerRadius : nil
         let index = WheelGeometry.sliceIndex(
             forCursor: cursor,
             center: center,
-            sliceCount: viewModel.slices.count
+            sliceCount: viewModel.slices.count,
+            maxRadius: maxRadius
         )
 
         // A genuine change of pointed slice starts a fresh dwell and re-arms.
@@ -196,7 +206,8 @@ final class OverlayWindowController {
         viewModel.selectedIndex = WheelGeometry.sliceIndex(
             forCursor: cursor,
             center: center,
-            sliceCount: viewModel.slices.count
+            sliceCount: viewModel.slices.count,
+            maxRadius: maxRadius
         )
     }
 

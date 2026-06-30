@@ -78,6 +78,31 @@ struct Wheel: Identifiable, Codable, Equatable {
     }
 }
 
+/// How the wheel maps the cursor to a slice. `direction` selects the nearest slice
+/// by angle at any distance past the dead zone (flick-style); `precisePosition`
+/// also requires the cursor to be within the wheel's outer radius, so a cursor off
+/// the wheel selects nothing.
+enum SelectionMode: String, Codable, CaseIterable, Identifiable {
+    case direction
+    case precisePosition
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .direction: return "Direction"
+        case .precisePosition: return "Precise Position"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .direction: return "Aim toward a slice from anywhere past the center — flick-style."
+        case .precisePosition: return "Select only when the cursor is on the wedge; off the wheel selects nothing."
+        }
+    }
+}
+
 /// The persisted document: schema version, every wheel, the active trigger, and
 /// which wheel opens on press.
 struct Config: Codable, Equatable {
@@ -87,6 +112,26 @@ struct Config: Codable, Equatable {
     var wheels: [Wheel]
     var trigger: TriggerBinding
     var rootWheelID: UUID
+    var selectionMode: SelectionMode = .direction
+
+    init(version: Int, wheels: [Wheel], trigger: TriggerBinding, rootWheelID: UUID,
+         selectionMode: SelectionMode = .direction) {
+        self.version = version
+        self.wheels = wheels
+        self.trigger = trigger
+        self.rootWheelID = rootWheelID
+        self.selectionMode = selectionMode
+    }
+
+    // Custom decode so a config written before `selectionMode` existed still loads.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        version = try c.decode(Int.self, forKey: .version)
+        wheels = try c.decode([Wheel].self, forKey: .wheels)
+        trigger = try c.decode(TriggerBinding.self, forKey: .trigger)
+        rootWheelID = try c.decode(UUID.self, forKey: .rootWheelID)
+        selectionMode = try c.decodeIfPresent(SelectionMode.self, forKey: .selectionMode) ?? .direction
+    }
 }
 
 extension Color {
