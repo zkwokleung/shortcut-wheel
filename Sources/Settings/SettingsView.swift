@@ -210,8 +210,8 @@ private struct TriggerSection: View {
 
             Section {
                 Toggle("Hide trigger from other apps", isOn: $trigger.swallowEvent)
-                    .help("Consume the trigger event so it doesn't reach the focused app.")
-                Text("Never applied to modifier keys. With a hold delay set, the press and release still pass through (only key-repeat while the wheel is open is suppressed).")
+                    .help("Consume the trigger so it doesn't reach the focused app when the wheel opens.")
+                Text("When the wheel opens, the trigger never reaches the focused app. A quick tap or click that doesn't open the wheel is delivered on release, so the key/button keeps its normal function (press-and-hold gestures in the other app aren't preserved). Never applied to modifier keys.")
                     .font(.caption).foregroundStyle(.secondary)
             }
 

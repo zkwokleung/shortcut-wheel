@@ -38,6 +38,18 @@ final class GlobalHotkeyMonitor {
     private var pendingOpen: DispatchWorkItem?
     /// Polls cursor distance in drag-to-open mode; nil unless a drag gate is armed.
     private var dragTimer: Timer?
+    /// The swallowed `.down` of the current hold, kept so a press that turns out to
+    /// be a tap (never opened the wheel) can be replayed to the focused app. nil
+    /// unless a swallowing hold-delay/drag trigger is mid-press.
+    private var bufferedDown: CGEvent?
+
+    /// Tags replayed taps via `.eventSourceUserData` so the tap ignores its own
+    /// re-injected events instead of matching them as a fresh trigger ("SW_RP").
+    private static let replayMarker: Int64 = 0x53_57_5F_52_50
+    /// True only while `replayBufferedTap` is posting. A mouse replay re-enters this
+    /// tap; this is a marker-independent backstop so a re-injected event can never be
+    /// re-buffered into an unbounded loop even if `.eventSourceUserData` were dropped.
+    private var isReplaying = false
 
     private(set) var isRunning = false
 
@@ -99,6 +111,7 @@ final class GlobalHotkeyMonitor {
         runLoopSource = nil
         cancelPendingOpen()
         cancelDragWatch()
+        bufferedDown = nil
         isTriggerDown = false
         wheelOpen = false
         isRunning = false
@@ -110,6 +123,7 @@ final class GlobalHotkeyMonitor {
         if isTriggerDown { onCancel?() }
         cancelPendingOpen()
         cancelDragWatch()
+        bufferedDown = nil
         isTriggerDown = false
         wheelOpen = false
         binding = newBinding
@@ -126,6 +140,12 @@ final class GlobalHotkeyMonitor {
 
     private func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         let pass = Unmanaged.passUnretained(event)
+
+        // A tap we replayed below (see `replayBufferedTap`); a mouse replay re-enters
+        // this tap, so let it through to the app instead of matching it as a fresh
+        // trigger and looping. The marker is primary; `isReplaying` is a backstop in
+        // case `.eventSourceUserData` doesn't survive the HID round-trip.
+        if isReplaying || event.getIntegerValueField(.eventSourceUserData) == Self.replayMarker { return pass }
 
         // The system disables the tap if a callback is slow or on certain input;
         // re-enable it or it stays dead.
@@ -145,13 +165,26 @@ final class GlobalHotkeyMonitor {
 
         guard let edge = triggerEdge(type: type, event: event) else { return pass }
 
+        // Decide swallow/buffer/replay from `wheelOpen` as it stands *now*, before the
+        // `.up` branch resets it — that's what tells a wheel-opening hold from a tap.
+        let action = Self.swallowAction(
+            swallow: binding.swallowEvent,
+            kind: binding.kind,
+            mode: binding.activationMode,
+            edge: edge,
+            wheelOpen: wheelOpen
+        )
+
         switch edge {
         case .down:
             // Resync if a prior keyUp/mouseUp was missed (focus loss, fast switch):
             // cancel the stale hold (don't fire its selection) before opening fresh.
-            if isTriggerDown { cancelPendingOpen(); cancelDragWatch(); onCancel?() }
+            if isTriggerDown { cancelPendingOpen(); cancelDragWatch(); bufferedDown = nil; onCancel?() }
             isTriggerDown = true
             wheelOpen = false
+            // Hold the press back (copy: the live event is only valid for this call)
+            // so it can be replayed if the hold turns out to be a tap.
+            if action == .bufferAndSwallow { bufferedDown = event.copy() }
             switch binding.activationMode {
             case .drag:
                 // Defer until the cursor leaves the press point by the configured
@@ -167,39 +200,102 @@ final class GlobalHotkeyMonitor {
         case .up:
             cancelPendingOpen()
             cancelDragWatch()
-            if isTriggerDown {
-                isTriggerDown = false
-                if wheelOpen {
-                    wheelOpen = false
-                    onRelease?()
-                }
-                // Otherwise it was a tap: the press already passed through; do nothing.
+            // Snapshot before resetting: `owned` says this release matches a press we
+            // tracked; `wasOpen` says that press had opened the wheel.
+            let owned = isTriggerDown
+            let wasOpen = wheelOpen
+            isTriggerDown = false
+            wheelOpen = false
+            if owned && wasOpen { onRelease?() }
+            let disposition = Self.upDisposition(action: action, owned: owned, hasBuffer: bufferedDown != nil)
+            if disposition == .replay {
+                // Tap that never opened the wheel: replay the buffered press so the
+                // focused app still gets its click/keystroke.
+                replayBufferedTap(up: event)
+            }
+            bufferedDown = nil
+            // Pass the release through whenever there's nothing to replay — an orphan
+            // up (down never seen), a buffer cleared by a mid-hold rebind, or a
+            // non-swallowing trigger — so the app never loses the release.
+            switch disposition {
+            case .pass: return pass
+            case .swallow, .replay: return nil
             }
         case .repeatHold:
-            // Auto-repeat fires only for a held key (past the OS repeat delay) — it is
-            // a hold, never a tap — so swallow repeats whenever the trigger hides its
-            // events, even before the wheel opens, so a long hold delay can't leak a
-            // stream of repeated keystrokes to the focused app.
-            return binding.swallowEvent ? nil : pass
+            // Auto-repeat fires only for a held key past the OS repeat delay — a hold,
+            // never a tap — so it's swallowed (never buffered/replayed) whenever the
+            // trigger hides its events, so a long hold delay can't leak a stream of
+            // repeated keystrokes to the focused app.
+            break
         }
 
-        return shouldSwallow ? nil : pass
+        switch action {
+        case .pass: return pass
+        case .swallow, .bufferAndSwallow, .replayTapThenSwallow: return nil
+        }
     }
 
-    /// Whether to consume the current matched trigger event. In immediate mode all
-    /// matched key/mouse events are swallowed uniformly (no auto-repeat leaks). In
-    /// hold-delay mode the press/release pass through (so taps work and down/up stay
-    /// balanced) and only auto-repeat is swallowed, once the wheel is open.
-    private var shouldSwallow: Bool {
-        guard binding.swallowEvent, binding.kind != .modifier else { return false }
-        // Immediate mode swallows every matched event. Hold-delay and drag-to-open let
-        // taps pass through, swallowing only once the wheel is open; `.up` clears
-        // wheelOpen before this check, so a release always passes through (down/up
-        // stay balanced).
-        switch binding.activationMode {
-        case .immediate: return true
-        case .holdDelay, .drag: return wheelOpen
+    /// What the tap should do with a matched trigger event. Pure (value-typed) so the
+    /// swallow/buffer/replay policy is unit-testable without a live `CGEvent`.
+    ///
+    /// Immediate mode consumes every matched event. Hold-delay/drag buffers the press
+    /// and swallows it: a release while the wheel is open swallows too (the app sees
+    /// neither edge); a release before it opened replays the buffered press as a tap.
+    /// Non-swallowing triggers and modifiers always pass through unchanged.
+    enum SwallowAction { case pass, swallow, bufferAndSwallow, replayTapThenSwallow }
+
+    nonisolated static func swallowAction(
+        swallow: Bool,
+        kind: TriggerBinding.Kind,
+        mode: TriggerBinding.ActivationMode,
+        edge: Edge,
+        wheelOpen: Bool
+    ) -> SwallowAction {
+        guard swallow, kind != .modifier else { return .pass }
+        switch mode {
+        case .immediate:
+            return .swallow
+        case .holdDelay, .drag:
+            switch edge {
+            case .down: return .bufferAndSwallow
+            case .repeatHold: return .swallow
+            case .up: return wheelOpen ? .swallow : .replayTapThenSwallow
+            }
         }
+    }
+
+    /// How to handle a `.up` once the runtime facts are known: whether the release
+    /// matched a press we tracked (`owned`) and whether a buffered press exists to
+    /// replay (`hasBuffer`). A tap is only replayable when both hold — otherwise the
+    /// release must pass through so the app never loses input (orphan up, or a buffer
+    /// cleared by a mid-hold rebind). Pure so the policy is unit-testable.
+    enum Disposition { case pass, swallow, replay }
+
+    nonisolated static func upDisposition(action: SwallowAction, owned: Bool, hasBuffer: Bool) -> Disposition {
+        switch action {
+        case .pass: return .pass
+        case .swallow, .bufferAndSwallow: return .swallow
+        case .replayTapThenSwallow: return (owned && hasBuffer) ? .replay : .pass
+        }
+    }
+
+    /// Re-injects the buffered press plus this release so a tap that never opened the
+    /// wheel still reaches the app. The press is delivered as a click *on release*, so
+    /// in-app press-and-hold gestures aren't preserved for a blocking trigger.
+    ///
+    /// Mouse goes to the HID tap so the window server routes the click to the app under
+    /// the cursor; a key goes to the annotated session tap — downstream of ours, so it
+    /// never re-enters, matching `KeySynthesizer` and avoiding stray hardware modifiers.
+    /// Both are tagged with `replayMarker`, and `isReplaying` guards the mouse re-entry.
+    private func replayBufferedTap(up: CGEvent) {
+        guard let down = bufferedDown, let upCopy = up.copy() else { return }
+        down.setIntegerValueField(.eventSourceUserData, value: Self.replayMarker)
+        upCopy.setIntegerValueField(.eventSourceUserData, value: Self.replayMarker)
+        let tap: CGEventTapLocation = binding.kind == .mouseButton ? .cghidEventTap : .cgAnnotatedSessionEventTap
+        isReplaying = true
+        down.post(tap: tap)
+        upCopy.post(tap: tap)
+        isReplaying = false
     }
 
     private func openWheel(at anchor: CGPoint? = nil) {
@@ -262,7 +358,7 @@ final class GlobalHotkeyMonitor {
 
     /// An event that belongs to the trigger and which edge it represents. `nil`
     /// for events unrelated to the trigger (pass them straight through).
-    private enum Edge { case down, up, repeatHold }
+    enum Edge { case down, up, repeatHold }
 
     private func triggerEdge(type: CGEventType, event: CGEvent) -> Edge? {
         switch binding.kind {
