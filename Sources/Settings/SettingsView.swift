@@ -148,6 +148,9 @@ private struct TriggerSection: View {
         ("Right Option (⌥)", TriggerBinding(kind: .modifier, code: TriggerBinding.rightOptionMask, swallowEvent: false)),
         ("Left Option (⌥)", TriggerBinding(kind: .modifier, code: TriggerBinding.leftOptionMask, swallowEvent: false)),
         ("Control (⌃)", TriggerBinding(kind: .modifier, code: CGEventFlags.maskControl.rawValue, swallowEvent: false)),
+        ("Control + Option (⌃⌥)", TriggerBinding(kind: .modifier, code: TriggerBinding.chordMask([.maskControl, .maskAlternate]), swallowEvent: false)),
+        ("Option + Command (⌥⌘)", TriggerBinding(kind: .modifier, code: TriggerBinding.chordMask([.maskAlternate, .maskCommand]), swallowEvent: false)),
+        ("Middle Click (Mouse 3)", TriggerBinding(kind: .mouseButton, code: 2, swallowEvent: true)),
         ("Mouse Button 4", TriggerBinding(kind: .mouseButton, code: 3, swallowEvent: true)),
         ("Mouse Button 5", TriggerBinding(kind: .mouseButton, code: 4, swallowEvent: true)),
     ]
@@ -163,9 +166,55 @@ private struct TriggerSection: View {
                         Text("Custom (\(trigger.displayName))").tag(nil as Int?)
                     }
                 }
-                Toggle("Hide trigger from other apps", isOn: $trigger.swallowEvent)
-                    .help("Consume the trigger event so it doesn't reach the focused app. Not applied to modifier keys.")
+                if trigger.kind == .modifier {
+                    chordBuilder
+                }
             }
+
+            Section("Drag to Open") {
+                Slider(value: $trigger.activationDistance, in: 0...200, step: 5) {
+                    Text("Drag distance")
+                } minimumValueLabel: {
+                    Text("Off")
+                } maximumValueLabel: {
+                    Text("200")
+                }
+                HStack {
+                    Text("Open after dragging").foregroundStyle(.secondary)
+                    Spacer()
+                    Text(distanceLabel).monospacedDigit()
+                }
+                Text("Require dragging the cursor this far before the wheel opens; it appears at the press point so the drag aims a slice. A press without dragging passes through. Replaces the hold delay while set.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
+            Section("Hold Delay") {
+                Slider(value: $trigger.activationDelay, in: 0...0.5, step: 0.05) {
+                    Text("Hold delay")
+                } minimumValueLabel: {
+                    Text("Off")
+                } maximumValueLabel: {
+                    Text("0.5s")
+                }
+                .disabled(trigger.activationDistance > 0)
+                HStack {
+                    Text("Open after").foregroundStyle(.secondary)
+                    Spacer()
+                    Text(delayLabel).monospacedDigit()
+                }
+                Text("A quick tap passes through to the focused app, so the trigger keeps its normal function. Hold past the delay to open the wheel.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            .disabled(trigger.activationDistance > 0)
+            .opacity(trigger.activationDistance > 0 ? 0.5 : 1)
+
+            Section {
+                Toggle("Hide trigger from other apps", isOn: $trigger.swallowEvent)
+                    .help("Consume the trigger event so it doesn't reach the focused app.")
+                Text("Never applied to modifier keys. With a hold delay set, the press and release still pass through (only key-repeat while the wheel is open is suppressed).")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
             Section {
                 Text("Current: \(trigger.displayName)").foregroundStyle(.secondary)
             }
@@ -174,10 +223,68 @@ private struct TriggerSection: View {
         .navigationTitle("Trigger")
     }
 
+    /// Toggle buttons that compose a device-independent modifier chord (matches
+    /// either physical side). Keeps at least one modifier selected.
+    private var chordBuilder: some View {
+        HStack {
+            Text("Modifiers")
+            Spacer()
+            ForEach(TriggerBinding.chordModifiers, id: \.glyph) { modifier in
+                Toggle(modifier.glyph, isOn: modifierBinding(modifier.flag))
+                    .toggleStyle(.button)
+            }
+        }
+    }
+
+    private var delayLabel: String {
+        trigger.activationDelay <= 0
+            ? "Off (instant)"
+            : "\(Int((trigger.activationDelay * 1000).rounded())) ms"
+    }
+
+    private var distanceLabel: String {
+        trigger.activationDistance <= 0
+            ? "Off"
+            : "\(Int(trigger.activationDistance.rounded())) pt"
+    }
+
+    private func modifierBinding(_ flag: CGEventFlags) -> Binding<Bool> {
+        Binding(
+            get: { trigger.code & flag.rawValue != 0 },
+            set: { isOn in
+                var present = TriggerBinding.chordModifiers
+                    .map(\.flag)
+                    .filter { trigger.code & $0.rawValue != 0 }
+                if isOn {
+                    if !present.contains(flag) { present.append(flag) }
+                } else {
+                    present.removeAll { $0 == flag }
+                }
+                guard !present.isEmpty else { return } // never leave an empty mask
+                trigger = TriggerBinding(
+                    kind: .modifier,
+                    code: TriggerBinding.chordMask(present),
+                    swallowEvent: trigger.swallowEvent,
+                    activationDelay: trigger.activationDelay,
+                    activationDistance: trigger.activationDistance
+                )
+            }
+        )
+    }
+
     private var presetSelection: Binding<Int?> {
         Binding(
             get: { Self.presets.firstIndex { $0.binding.kind == trigger.kind && $0.binding.code == trigger.code } },
-            set: { if let i = $0 { trigger = Self.presets[i].binding } }
+            // Preserve the user's activation tuning (delay + drag distance) when
+            // switching which key/button is the trigger.
+            set: {
+                if let i = $0 {
+                    var binding = Self.presets[i].binding
+                    binding.activationDelay = trigger.activationDelay
+                    binding.activationDistance = trigger.activationDistance
+                    trigger = binding
+                }
+            }
         )
     }
 }

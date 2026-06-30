@@ -1,3 +1,4 @@
+import AppKit
 import CoreGraphics
 import Foundation
 import os
@@ -14,8 +15,10 @@ final class GlobalHotkeyMonitor {
 
     private(set) var binding: TriggerBinding
 
-    /// Called on the main thread when the trigger is first pressed / released.
-    var onPress: (() -> Void)?
+    /// Called on the main thread when the wheel should open. The `CGPoint` is the
+    /// anchor (screen coords, y-up) to center the wheel on — the press point in
+    /// drag-to-open mode, otherwise the current cursor.
+    var onPress: ((CGPoint) -> Void)?
     var onRelease: (() -> Void)?
     /// Dismiss the wheel *without* selecting — used when the hold is ended by
     /// something other than a deliberate release (re-bind mid-hold, missed key-up).
@@ -27,6 +30,14 @@ final class GlobalHotkeyMonitor {
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
     private var isTriggerDown = false
+    /// True once `onPress` has fired for the current hold (i.e. the wheel is shown).
+    /// Distinguishes a deliberate hold from a quick tap that should pass through.
+    private var wheelOpen = false
+    /// The scheduled open for the current hold (hold-delay mode); cancelled if the
+    /// trigger is released before the delay elapses.
+    private var pendingOpen: DispatchWorkItem?
+    /// Polls cursor distance in drag-to-open mode; nil unless a drag gate is armed.
+    private var dragTimer: Timer?
 
     private(set) var isRunning = false
 
@@ -86,7 +97,10 @@ final class GlobalHotkeyMonitor {
         }
         eventTap = nil
         runLoopSource = nil
+        cancelPendingOpen()
+        cancelDragWatch()
         isTriggerDown = false
+        wheelOpen = false
         isRunning = false
     }
 
@@ -94,7 +108,10 @@ final class GlobalHotkeyMonitor {
         // If the trigger changes mid-hold, cancel the open wheel (don't fire the
         // highlighted slice — `onRelease` would dispatch its action).
         if isTriggerDown { onCancel?() }
+        cancelPendingOpen()
+        cancelDragWatch()
         isTriggerDown = false
+        wheelOpen = false
         binding = newBinding
     }
 
@@ -118,10 +135,15 @@ final class GlobalHotkeyMonitor {
             return pass
         }
 
-        // While a swallowing mouse-button trigger is held, also consume drags so the
-        // focused app doesn't receive orphaned drag events with no matching down.
+        // While a swallowing mouse-button trigger drives the wheel, also consume drags
+        // so the focused app doesn't receive orphaned drag events. In hold-delay mode
+        // the press passes through, so only swallow once the wheel is actually open.
         if type == .otherMouseDragged {
-            let swallowDrag = isTriggerDown && binding.kind == .mouseButton && binding.swallowEvent
+            // Drag-to-open and immediate mode swallow from press (so the summoning
+            // drag doesn't leak to the app, e.g. middle-button autoscroll); hold-delay
+            // swallows only once the wheel is open.
+            let active = binding.activationMode == .holdDelay ? wheelOpen : isTriggerDown
+            let swallowDrag = active && binding.kind == .mouseButton && binding.swallowEvent
             return swallowDrag ? nil : pass
         }
 
@@ -131,23 +153,115 @@ final class GlobalHotkeyMonitor {
         case .down:
             // Resync if a prior keyUp/mouseUp was missed (focus loss, fast switch):
             // cancel the stale hold (don't fire its selection) before opening fresh.
-            if isTriggerDown { onCancel?() }
+            if isTriggerDown { cancelPendingOpen(); cancelDragWatch(); onCancel?() }
             isTriggerDown = true
-            onPress?()
+            wheelOpen = false
+            switch binding.activationMode {
+            case .drag:
+                // Defer until the cursor leaves the press point by the configured
+                // distance. A release before then is a tap that passes through.
+                beginDragWatch()
+            case .immediate:
+                openWheel()
+            case .holdDelay:
+                // A tap (release before the delay) passes through untouched, so the
+                // trigger keeps its normal function.
+                scheduleOpen(after: binding.activationDelay)
+            }
         case .up:
+            cancelPendingOpen()
+            cancelDragWatch()
             if isTriggerDown {
                 isTriggerDown = false
-                onRelease?()
+                if wheelOpen {
+                    wheelOpen = false
+                    onRelease?()
+                }
+                // Otherwise it was a tap: the press already passed through; do nothing.
             }
         case .repeatHold:
-            break
+            // Auto-repeat fires only for a held key (past the OS repeat delay) — it is
+            // a hold, never a tap — so swallow repeats whenever the trigger hides its
+            // events, even before the wheel opens, so a long hold delay can't leak a
+            // stream of repeated keystrokes to the focused app.
+            return binding.swallowEvent ? nil : pass
         }
 
-        // All matched trigger events (down/up/repeat) are swallowed uniformly when
-        // configured, so a held key never leaks auto-repeats to the focused app.
-        // Modifiers are never swallowed — that would break the modifier globally.
-        let swallow = binding.swallowEvent && binding.kind != .modifier
-        return swallow ? nil : pass
+        return shouldSwallow ? nil : pass
+    }
+
+    /// Whether to consume the current matched trigger event. In immediate mode all
+    /// matched key/mouse events are swallowed uniformly (no auto-repeat leaks). In
+    /// hold-delay mode the press/release pass through (so taps work and down/up stay
+    /// balanced) and only auto-repeat is swallowed, once the wheel is open.
+    private var shouldSwallow: Bool {
+        guard binding.swallowEvent, binding.kind != .modifier else { return false }
+        // Immediate mode swallows every matched event. Hold-delay and drag-to-open let
+        // taps pass through, swallowing only once the wheel is open; `.up` clears
+        // wheelOpen before this check, so a release always passes through (down/up
+        // stay balanced).
+        switch binding.activationMode {
+        case .immediate: return true
+        case .holdDelay, .drag: return wheelOpen
+        }
+    }
+
+    private func openWheel(at anchor: CGPoint? = nil) {
+        pendingOpen = nil
+        wheelOpen = true
+        onPress?(anchor ?? NSEvent.mouseLocation)
+    }
+
+    private func scheduleOpen(after delay: TimeInterval) {
+        cancelPendingOpen()
+        let work = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, self.isTriggerDown, !self.wheelOpen else { return }
+                self.openWheel()
+            }
+        }
+        pendingOpen = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+    }
+
+    private func cancelPendingOpen() {
+        pendingOpen?.cancel()
+        pendingOpen = nil
+    }
+
+    /// Opens the wheel once the cursor has moved `activationDistance` points from the
+    /// press point, polling on the main run loop (trigger-agnostic; no mouse-move tap).
+    private func beginDragWatch() {
+        cancelDragWatch()
+        let anchor = NSEvent.mouseLocation
+        let distance = binding.activationDistance
+        let timer = Timer(timeInterval: 1.0 / 120.0, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.isTriggerDown, !self.wheelOpen else { return }
+                let now = NSEvent.mouseLocation
+                if hypot(now.x - anchor.x, now.y - anchor.y) >= distance {
+                    self.cancelDragWatch()
+                    self.openWheel(at: anchor)
+                }
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        dragTimer = timer
+    }
+
+    private func cancelDragWatch() {
+        dragTimer?.invalidate()
+        dragTimer = nil
+    }
+
+    /// Whether a held modifier trigger should now be treated as released. A single
+    /// (possibly device-specific) modifier releases as soon as its mask is no longer
+    /// fully held. A multi-modifier chord (e.g. ⌃⌥) releases only once *every* one of
+    /// its modifiers is up, so letting go of one doesn't commit the selection early.
+    private func triggerReleased(currentFlags: CGEventFlags, isDown: Bool) -> Bool {
+        let standard: CGEventFlags = [.maskControl, .maskAlternate, .maskShift, .maskCommand]
+        let isChord = binding.flags.intersection(standard).rawValue.nonzeroBitCount >= 2
+        return isChord ? currentFlags.intersection(binding.flags).isEmpty : !isDown
     }
 
     /// An event that belongs to the trigger and which edge it represents. `nil`
@@ -162,7 +276,9 @@ final class GlobalHotkeyMonitor {
             // device-dependent left/right bit — so right Option won't match left.
             let isDown = event.flags.contains(binding.flags)
             if isDown && !isTriggerDown { return .down }
-            if !isDown && isTriggerDown { return .up }
+            if isTriggerDown && triggerReleased(currentFlags: event.flags, isDown: isDown) {
+                return .up
+            }
             return nil
 
         case .key:

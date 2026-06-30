@@ -38,9 +38,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .dropFirst()
             .sink { [weak self] newTrigger in self?.hotkeyMonitor.updateBinding(newTrigger) }
 
-        hotkeyMonitor.onPress = { [weak self] in
+        hotkeyMonitor.onPress = { [weak self] anchor in
             guard let self, let root = self.config.rootWheel else { return }
-            self.overlay.show(rootWheel: root)
+            self.overlay.show(rootWheel: root, at: anchor)
         }
         hotkeyMonitor.onRelease = { [weak self] in
             guard let self else { return }

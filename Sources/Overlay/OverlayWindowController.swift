@@ -49,14 +49,16 @@ final class OverlayWindowController {
 
     var isVisible: Bool { panel != nil }
 
-    func show(rootWheel: Wheel) {
+    func show(rootWheel: Wheel, at anchor: CGPoint? = nil) {
         // Nothing to show if every slot is empty.
         guard panel == nil, rootWheel.slices.contains(where: { $0 != nil }) else { return }
         wheelStack = [rootWheel]
         present(rootWheel)
         resetDwell()
 
-        center = NSEvent.mouseLocation
+        // Anchor at the caller's point (the press point in drag-to-open mode) or, by
+        // default, the current cursor.
+        center = anchor ?? NSEvent.mouseLocation
 
         let panel = OverlayPanel(
             contentRect: CGRect(origin: .zero, size: panelSize),
