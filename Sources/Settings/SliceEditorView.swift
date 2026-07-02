@@ -48,11 +48,17 @@ struct SliceEditorView: View {
             Toggle("⌥ Option", isOn: modifierBinding(.maskAlternate))
             Toggle("⌃ Control", isOn: modifierBinding(.maskControl))
             Toggle("⇧ Shift", isOn: modifierBinding(.maskShift))
-            HStack {
-                Text("Key code")
-                TextField("", value: keyCodeBinding, format: .number).frame(width: 60)
-                Text("e.g. C=8, V=9, Space=49").font(.caption).foregroundStyle(.secondary)
-            }
+            ShortcutRecorderField(
+                label: "Key",
+                display: KeyCodeFormatter.name(for: CGKeyCode(combo.keyCode)),
+                onRecord: { keyCode, _ in
+                    // Modifiers come from the toggles above; the recorder only sets
+                    // which key is sent.
+                    var updated = combo
+                    updated.keyCode = UInt16(truncatingIfNeeded: keyCode)
+                    slice.action = .sendKeys(updated)
+                }
+            )
         case .openURL:
             TextField("https://example.com", text: stringBinding(get: openURLValue, set: { slice.action = .openURL($0) }))
         case .openApp:
@@ -129,17 +135,6 @@ struct SliceEditorView: View {
                 if on { raw |= flag.rawValue } else { raw &= ~flag.rawValue }
                 var updated = combo
                 updated.modifiers = raw
-                slice.action = .sendKeys(updated)
-            }
-        )
-    }
-
-    private var keyCodeBinding: Binding<Int> {
-        Binding(
-            get: { Int(combo.keyCode) },
-            set: {
-                var updated = combo
-                updated.keyCode = UInt16(min(max($0, 0), 127))
                 slice.action = .sendKeys(updated)
             }
         )

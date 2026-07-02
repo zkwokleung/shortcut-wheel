@@ -351,10 +351,30 @@ final class GlobalHotkeyMonitor {
     /// fully held. A multi-modifier chord (e.g. ⌃⌥) releases only once *every* one of
     /// its modifiers is up, so letting go of one doesn't commit the selection early.
     private func triggerReleased(currentFlags: CGEventFlags, isDown: Bool) -> Bool {
-        let standard: CGEventFlags = [.maskControl, .maskAlternate, .maskShift, .maskCommand]
-        let isChord = binding.flags.intersection(standard).rawValue.nonzeroBitCount >= 2
+        let isChord = binding.flags.intersection(Self.standardModifiers).rawValue.nonzeroBitCount >= 2
         return isChord ? currentFlags.intersection(binding.flags).isEmpty : !isDown
     }
+
+    /// Whether a key-down belongs to a `.key` trigger: the key code must match, and
+    /// any required modifiers must be held *exactly* (the standard ⌃⌥⇧⌘ subset equals
+    /// the requirement), so ⌘Space doesn't also fire on ⌃⌘Space. A bare key
+    /// (`requiredModifiers == 0`) matches on key code alone, ignoring modifiers, so it
+    /// behaves as it did before combos existed. Pure so it's unit-testable.
+    nonisolated static func keyTriggerMatches(
+        eventKeyCode: CGKeyCode,
+        eventFlags: CGEventFlags,
+        bindingKeyCode: CGKeyCode,
+        requiredModifiers: UInt64
+    ) -> Bool {
+        guard eventKeyCode == bindingKeyCode else { return false }
+        guard requiredModifiers != 0 else { return true }
+        let required = CGEventFlags(rawValue: requiredModifiers).intersection(standardModifiers)
+        return eventFlags.intersection(standardModifiers) == required
+    }
+
+    /// The device-independent modifier bits (⌃⌥⇧⌘). Used to compare held flags
+    /// against a binding while ignoring device-side and non-coalesced bits.
+    nonisolated static let standardModifiers: CGEventFlags = [.maskControl, .maskAlternate, .maskShift, .maskCommand]
 
     /// An event that belongs to the trigger and which edge it represents. `nil`
     /// for events unrelated to the trigger (pass them straight through).
@@ -375,12 +395,19 @@ final class GlobalHotkeyMonitor {
 
         case .key:
             let keyCode = CGKeyCode(truncatingIfNeeded: event.getIntegerValueField(.keyboardEventKeycode))
-            guard keyCode == binding.keyCode else { return nil }
             switch type {
             case .keyDown:
+                guard Self.keyTriggerMatches(
+                    eventKeyCode: keyCode,
+                    eventFlags: event.flags,
+                    bindingKeyCode: binding.keyCode,
+                    requiredModifiers: binding.requiredModifiers
+                ) else { return nil }
                 return event.getIntegerValueField(.keyboardEventAutorepeat) == 0 ? .down : .repeatHold
             case .keyUp:
-                return .up
+                // Release on the bound key always ends the hold, even if a required
+                // modifier was lifted first, so the wheel can never stick open.
+                return keyCode == binding.keyCode ? .up : nil
             default:
                 return nil
             }

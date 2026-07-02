@@ -198,6 +198,27 @@ private struct TriggerSection: View {
                 }
             }
 
+            Section("Custom Key") {
+                ShortcutRecorderField(
+                    label: "Keyboard shortcut",
+                    display: trigger.kind == .key ? trigger.displayName : nil,
+                    onRecord: { keyCode, flags in
+                        // Preserve the user's activation tuning + swallow choice, like
+                        // switching presets does.
+                        trigger = TriggerBinding(
+                            kind: .key,
+                            code: UInt64(keyCode),
+                            swallowEvent: trigger.swallowEvent,
+                            activationDelay: trigger.activationDelay,
+                            activationDistance: trigger.activationDistance,
+                            requiredModifiers: flags.rawValue
+                        )
+                    }
+                )
+                Text("Optionally hold ⌃⌥⇧⌘ while recording.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
             Section("Drag to Open") {
                 Slider(value: $trigger.activationDistance, in: 0...200, step: 5) {
                     Text("Drag distance")

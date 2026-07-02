@@ -75,6 +75,35 @@ struct TriggerBindingTests {
         #expect(decoded.activationDistance == 40)
     }
 
+    @Test func keyDisplayNameUsesSpecialKeyName() {
+        // Space (keycode 49) is in the special-key table, so it's layout-independent.
+        let binding = TriggerBinding(kind: .key, code: 49, swallowEvent: false)
+        #expect(binding.displayName == "Space")
+    }
+
+    @Test func keyDisplayNamePrefixesRequiredModifiers() {
+        var binding = TriggerBinding(kind: .key, code: 49, swallowEvent: false)
+        binding.requiredModifiers = TriggerBinding.chordMask([.maskCommand, .maskShift])
+        #expect(binding.displayName == "⇧⌘Space") // glyphs render in ⌃⌥⇧⌘ order
+    }
+
+    @Test func legacyConfigDecodesWithoutRequiredModifiers() throws {
+        // A config predating `requiredModifiers` must decode with the default (0 = bare
+        // key), not throw and wipe the user's settings.
+        let json = #"{"kind":"key","code":49,"swallowEvent":false,"activationDelay":0.2}"#
+        let binding = try JSONDecoder().decode(TriggerBinding.self, from: Data(json.utf8))
+        #expect(binding.requiredModifiers == 0)
+        #expect(binding.kind == .key)
+    }
+
+    @Test func requiredModifiersRoundTrip() throws {
+        var binding = TriggerBinding(kind: .key, code: 49, swallowEvent: true)
+        binding.requiredModifiers = TriggerBinding.chordMask([.maskCommand, .maskShift])
+        let decoded = try JSONDecoder().decode(TriggerBinding.self, from: JSONEncoder().encode(binding))
+        #expect(decoded == binding)
+        #expect(decoded.requiredModifiers == binding.requiredModifiers)
+    }
+
     @Test func chordDisplayNameComposesGlyphs() {
         let code = TriggerBinding.chordMask([.maskControl, .maskAlternate])
         let binding = TriggerBinding(kind: .modifier, code: code, swallowEvent: false)

@@ -28,6 +28,10 @@ struct TriggerBinding: Codable, Equatable {
     /// a release before then passes the trigger through. Replaces `activationDelay`
     /// as the gate while set.
     var activationDistance: CGFloat = 0
+    /// Modifiers (a `CGEventFlags` mask) that must be held with the key for a `.key`
+    /// trigger to fire — e.g. ⌘⇧ + Space. `0` means the bare key. Ignored for
+    /// `.modifier` (the chord lives in `code`) and `.mouseButton`.
+    var requiredModifiers: UInt64 = 0
 
     /// Device-dependent flag bits that distinguish left vs right modifier keys.
     /// `CGEventFlags.maskAlternate` (etc.) is set for *either* side; these bits
@@ -81,7 +85,7 @@ struct TriggerBinding: Codable, Equatable {
                 return glyphs.isEmpty ? "Modifier" : glyphs
             }
         case .key:
-            return "Key \(code)"
+            return Self.modifierGlyphs(requiredModifiers) + KeyCodeFormatter.name(for: keyCode)
         case .mouseButton:
             // macOS button numbers are 0-based; the UI labels them 1-based (button
             // number 3 = "Mouse Button 4"), matching the SettingsView presets.
@@ -99,7 +103,7 @@ struct TriggerBinding: Codable, Equatable {
 
 extension TriggerBinding {
     private enum CodingKeys: String, CodingKey {
-        case kind, code, swallowEvent, activationDelay, activationDistance
+        case kind, code, swallowEvent, activationDelay, activationDistance, requiredModifiers
     }
 
     // Custom decode (in an extension, to keep the synthesized memberwise init) so a
@@ -113,5 +117,6 @@ extension TriggerBinding {
         swallowEvent = try container.decode(Bool.self, forKey: .swallowEvent)
         activationDelay = try container.decodeIfPresent(TimeInterval.self, forKey: .activationDelay) ?? 0.2
         activationDistance = try container.decodeIfPresent(CGFloat.self, forKey: .activationDistance) ?? 0
+        requiredModifiers = try container.decodeIfPresent(UInt64.self, forKey: .requiredModifiers) ?? 0
     }
 }
