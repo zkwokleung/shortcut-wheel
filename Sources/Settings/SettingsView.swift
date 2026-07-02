@@ -232,7 +232,7 @@ private struct TriggerSection: View {
                     Spacer()
                     Text(distanceLabel).monospacedDigit()
                 }
-                Text("Require dragging the cursor this far before the wheel opens; it appears at the press point so the drag aims a slice. A press without dragging passes through. Replaces the hold delay while set.")
+                Text("The wheel appears at the press point so the drag aims a slice. A press without dragging passes through. Replaces the hold delay while set.")
                     .font(.caption).foregroundStyle(.secondary)
             }
 
@@ -250,7 +250,7 @@ private struct TriggerSection: View {
                     Spacer()
                     Text(delayLabel).monospacedDigit()
                 }
-                Text("A quick tap passes through to the focused app, so the trigger keeps its normal function. Hold past the delay to open the wheel.")
+                Text("A quick tap passes through to the focused app, so the trigger keeps its normal function.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             .disabled(trigger.activationDistance > 0)
@@ -258,7 +258,6 @@ private struct TriggerSection: View {
 
             Section {
                 Toggle("Hide trigger from other apps", isOn: $trigger.swallowEvent)
-                    .help("Consume the trigger so it doesn't reach the focused app when the wheel opens.")
                 Text("When the wheel opens, the trigger never reaches the focused app. A quick tap or click that doesn't open the wheel is delivered on release, so the key/button keeps its normal function (press-and-hold gestures in the other app aren't preserved). Never applied to modifier keys.")
                     .font(.caption).foregroundStyle(.secondary)
             }

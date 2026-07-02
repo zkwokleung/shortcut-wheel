@@ -79,10 +79,8 @@ struct SliceEditorView: View {
                     ForEach(otherWheels) { Text($0.name).tag($0.id) }
                 }
             }
-        case .openSettings:
-            Text("Opens Shortcut Wheel's settings window.").foregroundStyle(.secondary)
-        case .none:
-            Text("This slice does nothing when selected.").foregroundStyle(.secondary)
+        case .openSettings, .none:
+            EmptyView()
         }
     }
 
