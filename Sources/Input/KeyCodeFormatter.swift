@@ -54,6 +54,17 @@ enum KeyCodeFormatter {
         return nil
     }
 
+    /// Whether pressing this key alone types or edits text, so binding it as a bare
+    /// trigger (no modifiers) would fire during ordinary typing.
+    static func isTypingKey(_ keyCode: CGKeyCode) -> Bool {
+        if character(for: keyCode) != nil { return true }
+        return typingSpecialKeys.contains(Int(keyCode))
+    }
+
+    private static let typingSpecialKeys: Set<Int> = [
+        kVK_Space, kVK_Return, kVK_ANSI_KeypadEnter, kVK_Tab, kVK_Delete, kVK_ForwardDelete,
+    ]
+
     private static func character(for keyCode: CGKeyCode) -> String? {
         guard let layoutPointer = unicodeLayoutData() else { return nil }
         let layoutData = Unmanaged<CFData>.fromOpaque(layoutPointer).takeUnretainedValue() as Data
@@ -77,7 +88,11 @@ enum KeyCodeFormatter {
             guard status == noErr, length > 0 else { return nil }
             let glyph = String(utf16CodeUnits: characters, count: length)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            return glyph.isEmpty ? nil : glyph.uppercased()
+            guard !glyph.isEmpty else { return nil }
+            // Uppercase the letter form, but not when doing so expands the glyph
+            // (e.g. ß → "SS"), which would misrepresent the physical key.
+            let upper = glyph.uppercased()
+            return upper.count == glyph.count ? upper : glyph
         }
     }
 }

@@ -215,8 +215,15 @@ private struct TriggerSection: View {
                         )
                     }
                 )
-                Text("Optionally hold ⌃⌥⇧⌘ while recording.")
+                Text("Optionally hold ⌃⌥⇧⌘ while recording. Recording a key replaces the preset above.")
                     .font(.caption).foregroundStyle(.secondary)
+                if bareTypingKeyWarning {
+                    Label(
+                        "This key has no modifiers, so the wheel will open every time you press it — including while typing. Add ⌃⌥⇧⌘ to avoid conflicts.",
+                        systemImage: "exclamationmark.triangle"
+                    )
+                    .font(.caption).foregroundStyle(.orange)
+                }
             }
 
             Section("Drag to Open") {
@@ -281,6 +288,10 @@ private struct TriggerSection: View {
                     .toggleStyle(.button)
             }
         }
+    }
+
+    private var bareTypingKeyWarning: Bool {
+        trigger.kind == .key && trigger.requiredModifiers == 0 && KeyCodeFormatter.isTypingKey(trigger.keyCode)
     }
 
     private var delayLabel: String {
