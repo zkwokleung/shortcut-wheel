@@ -51,3 +51,37 @@ struct KeyTriggerMatchTests {
         #expect(matches(eventKeyCode: 49, eventFlags: flags, bindingKeyCode: 49, requiredModifiers: .maskCommand))
     }
 }
+
+/// `GlobalHotkeyMonitor.keyEdge` — how a keyboard event maps to a trigger edge given a
+/// fresh-press match and whether the hold is already owned.
+struct KeyEdgeTests {
+    private typealias Edge = GlobalHotkeyMonitor.Edge
+
+    @Test func freshPressNeedsExactMatch() {
+        #expect(GlobalHotkeyMonitor.keyEdge(isKeyDown: true, isAutorepeat: false, keyCodeMatches: true, freshMatch: true, heldDown: false) == .down)
+        // Near-miss chord (right key code, wrong modifiers) is not our press.
+        #expect(GlobalHotkeyMonitor.keyEdge(isKeyDown: true, isAutorepeat: false, keyCodeMatches: true, freshMatch: false, heldDown: false) == nil)
+    }
+
+    @Test func releaseIsSwallowedOnlyWhenOwned() {
+        // Owned hold: the release ends it even after a modifier was lifted (freshMatch
+        // would be false by then), so the wheel can't stick open.
+        #expect(GlobalHotkeyMonitor.keyEdge(isKeyDown: false, isAutorepeat: false, keyCodeMatches: true, freshMatch: false, heldDown: true) == .up)
+        // Near-miss press we passed through must NOT have its key-up swallowed —
+        // otherwise the app gets a key-down with no matching key-up (stuck key).
+        #expect(GlobalHotkeyMonitor.keyEdge(isKeyDown: false, isAutorepeat: false, keyCodeMatches: true, freshMatch: false, heldDown: false) == nil)
+    }
+
+    @Test func autorepeatFollowsOwnedHoldNotModifiers() {
+        // Mid-hold repeat with the modifier since released (freshMatch false) is still
+        // swallowed as repeatHold, so repeated keystrokes don't leak to the app.
+        #expect(GlobalHotkeyMonitor.keyEdge(isKeyDown: true, isAutorepeat: true, keyCodeMatches: true, freshMatch: false, heldDown: true) == .repeatHold)
+        // A repeat for a key we don't own passes through.
+        #expect(GlobalHotkeyMonitor.keyEdge(isKeyDown: true, isAutorepeat: true, keyCodeMatches: true, freshMatch: false, heldDown: false) == nil)
+    }
+
+    @Test func differentKeyNeverMatchesReleaseOrRepeat() {
+        #expect(GlobalHotkeyMonitor.keyEdge(isKeyDown: false, isAutorepeat: false, keyCodeMatches: false, freshMatch: false, heldDown: true) == nil)
+        #expect(GlobalHotkeyMonitor.keyEdge(isKeyDown: true, isAutorepeat: true, keyCodeMatches: false, freshMatch: false, heldDown: true) == nil)
+    }
+}

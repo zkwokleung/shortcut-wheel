@@ -376,6 +376,23 @@ final class GlobalHotkeyMonitor {
     /// against a binding while ignoring device-side and non-coalesced bits.
     nonisolated static let standardModifiers: CGEventFlags = [.maskControl, .maskAlternate, .maskShift, .maskCommand]
 
+    /// Which edge a keyboard event represents for a `.key` trigger. Only a fresh press
+    /// is gated on the modifier match; autorepeats and the release are matched by key
+    /// code against a press we already own (`heldDown`). This way lifting a modifier
+    /// mid-hold can't leak keystrokes or stick the wheel open, and a near-miss chord we
+    /// passed through doesn't get its release swallowed (which would strand its key-down).
+    nonisolated static func keyEdge(
+        isKeyDown: Bool,
+        isAutorepeat: Bool,
+        keyCodeMatches: Bool,
+        freshMatch: Bool,
+        heldDown: Bool
+    ) -> Edge? {
+        guard isKeyDown else { return heldDown && keyCodeMatches ? .up : nil }
+        if isAutorepeat { return heldDown && keyCodeMatches ? .repeatHold : nil }
+        return freshMatch ? .down : nil
+    }
+
     /// An event that belongs to the trigger and which edge it represents. `nil`
     /// for events unrelated to the trigger (pass them straight through).
     enum Edge { case down, up, repeatHold }
@@ -394,23 +411,21 @@ final class GlobalHotkeyMonitor {
             return nil
 
         case .key:
+            guard type == .keyDown || type == .keyUp else { return nil }
             let keyCode = CGKeyCode(truncatingIfNeeded: event.getIntegerValueField(.keyboardEventKeycode))
-            switch type {
-            case .keyDown:
-                guard Self.keyTriggerMatches(
-                    eventKeyCode: keyCode,
-                    eventFlags: event.flags,
-                    bindingKeyCode: binding.keyCode,
-                    requiredModifiers: binding.requiredModifiers
-                ) else { return nil }
-                return event.getIntegerValueField(.keyboardEventAutorepeat) == 0 ? .down : .repeatHold
-            case .keyUp:
-                // Release on the bound key always ends the hold, even if a required
-                // modifier was lifted first, so the wheel can never stick open.
-                return keyCode == binding.keyCode ? .up : nil
-            default:
-                return nil
-            }
+            let freshMatch = Self.keyTriggerMatches(
+                eventKeyCode: keyCode,
+                eventFlags: event.flags,
+                bindingKeyCode: binding.keyCode,
+                requiredModifiers: binding.requiredModifiers
+            )
+            return Self.keyEdge(
+                isKeyDown: type == .keyDown,
+                isAutorepeat: event.getIntegerValueField(.keyboardEventAutorepeat) != 0,
+                keyCodeMatches: keyCode == binding.keyCode,
+                freshMatch: freshMatch,
+                heldDown: isTriggerDown
+            )
 
         case .mouseButton:
             let button = event.getIntegerValueField(.mouseEventButtonNumber)
