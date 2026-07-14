@@ -4,6 +4,7 @@ enum SettingsSection: Hashable {
     case permissions
     case trigger
     case selectionMode
+    case updates
     case wheel(UUID)
 }
 
@@ -28,6 +29,7 @@ struct SettingsView: View {
                 Label("Permissions", systemImage: "lock.shield").tag(SettingsSection.permissions)
                 Label("Trigger", systemImage: "hand.tap").tag(SettingsSection.trigger)
                 Label("Selection", systemImage: "scope").tag(SettingsSection.selectionMode)
+                Label("Updates", systemImage: "arrow.down.circle").tag(SettingsSection.updates)
             }
             Section("Wheels") {
                 ForEach(config.config.wheels) { wheel in
@@ -57,6 +59,8 @@ struct SettingsView: View {
             TriggerSection(trigger: $config.config.trigger)
         case .selectionMode:
             SelectionModeSection(mode: $config.config.selectionMode)
+        case .updates:
+            UpdatesSection(updates: UpdateChecker.shared)
         case .wheel(let id):
             if let binding = wheelBinding(id) {
                 WheelEditorView(
@@ -165,6 +169,58 @@ private struct SelectionModeSection: View {
         }
         .formStyle(.grouped)
         .navigationTitle("Selection")
+    }
+}
+
+private struct UpdatesSection: View {
+    @ObservedObject var updates: UpdateChecker
+
+    var body: some View {
+        Form {
+            Section("Version") {
+                LabeledContent("Current", value: updates.currentVersion)
+                LabeledContent("Last checked", value: lastCheckedLabel)
+            }
+            Section("Updates") {
+                statusRow
+                Button("Check Now") {
+                    Task { await updates.check(userInitiated: true) }
+                }
+                .disabled(updates.state == .checking)
+                if case .available(let release) = updates.state {
+                    Button("Download Update") { updates.openDownload(release) }
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .navigationTitle("Updates")
+    }
+
+    @ViewBuilder
+    private var statusRow: some View {
+        switch updates.state {
+        case .idle:
+            Text("Not checked yet.").foregroundStyle(.secondary)
+        case .checking:
+            HStack {
+                ProgressView().controlSize(.small)
+                Text("Checking…").foregroundStyle(.secondary)
+            }
+        case .upToDate:
+            Label("You’re up to date.", systemImage: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+        case .available(let release):
+            Label("Version \(release.version) is available.", systemImage: "arrow.down.circle.fill")
+                .foregroundStyle(.blue)
+        case .failed(let message):
+            Label(message, systemImage: "exclamationmark.triangle")
+                .foregroundStyle(.orange)
+        }
+    }
+
+    private var lastCheckedLabel: String {
+        guard let last = updates.lastChecked else { return "Never" }
+        return last.formatted(date: .abbreviated, time: .shortened)
     }
 }
 

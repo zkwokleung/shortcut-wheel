@@ -29,6 +29,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         permissions.startMonitoring()
         permissions.requestIfNeeded()
 
+        // Silent, throttled check; a found update surfaces in the menu bar / Settings.
+        Task { await UpdateChecker.shared.check(userInitiated: false) }
+
         overlay.wheelProvider = { [weak self] id in self?.config.wheel(id: id) }
 
         // Re-bind the monitor when the trigger is changed in Settings.
